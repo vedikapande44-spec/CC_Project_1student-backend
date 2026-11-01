@@ -14,6 +14,7 @@ app.get('/', (req, res) => {
 
 // Student Routes Register Karo
 app.use('/api/students', require('./routes/studentRoutes'));
+app.use('/api/assistant', require('./routes/assistantRoutes'));
 
 const PORT = process.env.PORT || 5000;
 
