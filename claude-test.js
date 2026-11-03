@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 
 async function main() {
@@ -9,12 +8,13 @@ async function main() {
       apiKey: process.env.GEMINI_API_KEY,
     });
 
+    const modelName = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: 'Reply with exactly: Gemini API is working!',
+      model: modelName,
+      contents: 'Reply with exactly: Gemini API with MCP is working!',
     });
 
-    console.log(response.text);
+    console.log(`[Success using ${modelName}]: ${response.text?.trim()}`);
   } catch (error) {
     console.error('Gemini API test failed:', error.message);
   }

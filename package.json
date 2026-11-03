@@ -1,13 +1,18 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Student Management System Backend with Gemini MCP Integration",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "mcp:unified": "node unifiedMcpServer.js",
+    "mcp:student": "node studentMcpServer.js",
+    "mcp:mongodb": "node mongodbMcpServer.js",
+    "mcp:github": "node githubMcpServer.js"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["student-management", "mcp", "gemini", "mongodb"],
+  "author": "Vedika Pande",
   "license": "ISC",
   "dependencies": {
     "@google/genai": "^2.32.0",
