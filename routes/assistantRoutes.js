@@ -54,14 +54,29 @@ const TOOL_HANDLERS = {
   },
   student_add_student: async (data) => {
     await ensureDB();
-    const s = await Student.create({
-      studentId: data.studentId.trim(),
-      name: data.name.trim(),
-      email: data.email.trim(),
-      department: data.department.trim(),
-      semester: Number(data.semester)
-    });
-    return { content: [{ type: 'text', text: JSON.stringify({ message: 'Student added successfully', student: s }, null, 2) }] };
+    try {
+      const s = await Student.create({
+        studentId: data.studentId.trim(),
+        name: data.name.trim(),
+        email: data.email.trim(),
+        department: data.department.trim(),
+        semester: Number(data.semester)
+      });
+      return { content: [{ type: 'text', text: JSON.stringify({ message: 'Student added successfully', student: s }, null, 2) }] };
+    } catch (err) {
+      if (err.code === 11000) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              error: `A student with ID '${data.studentId}' already exists in the database. Please use a different Student ID or update the existing student.`,
+              duplicate: true
+            })
+          }]
+        };
+      }
+      throw err;
+    }
   },
   student_batch_add_students: async ({ students }) => {
     await ensureDB();
@@ -87,13 +102,13 @@ const TOOL_HANDLERS = {
     await ensureDB();
     let s = await Student.findOneAndUpdate({ studentId: id }, updates, { new: true, runValidators: true });
     if (!s && mongoose.isValidObjectId(id)) s = await Student.findByIdAndUpdate(id, updates, { new: true, runValidators: true });
-    return { content: [{ type: 'text', text: s ? JSON.stringify({ message: 'Student updated successfully', student: s }, null, 2) : `Student not found: ${id}` }] };
+    return { content: [{ type: 'text', text: s ? JSON.stringify({ message: 'Student updated successfully', student: s }, null, 2) : `Student not found with ID ${id}` }] };
   },
   student_delete_student: async ({ id }) => {
     await ensureDB();
     let s = await Student.findOneAndDelete({ studentId: id });
     if (!s && mongoose.isValidObjectId(id)) s = await Student.findByIdAndDelete(id);
-    return { content: [{ type: 'text', text: s ? `Student '${s.name}' (${s.studentId}) deleted successfully` : `Student not found: ${id}` }] };
+    return { content: [{ type: 'text', text: s ? `Student '${s.name}' (${s.studentId}) deleted successfully` : `Student not found with ID ${id}` }] };
   },
 
   // MongoDB Analytics
@@ -460,6 +475,9 @@ function formatFallbackResponse(toolName, args, result) {
     let studentData = args;
     try {
       const parsed = JSON.parse(result.content[0].text);
+      if (parsed.error) {
+        return `⚠️ **Duplicate Student ID:** ${parsed.error}`;
+      }
       if (parsed.student) studentData = parsed.student;
     } catch {}
     return (
@@ -706,10 +724,15 @@ router.post('/', async (req, res) => {
 
     if (intent && TOOL_HANDLERS[intent.tool]) {
       const toolOutput = await TOOL_HANDLERS[intent.tool](intent.args);
-      const isMutation =
+      let isMutation =
         intent.tool.includes('add_student') ||
         intent.tool.includes('update_student') ||
         intent.tool.includes('delete_student');
+
+      // Check for duplicate key error inside result
+      if (toolOutput.content?.[0]?.text?.includes('duplicate')) {
+        isMutation = false;
+      }
 
       const reply = formatFallbackResponse(intent.tool, intent.args, toolOutput);
 
