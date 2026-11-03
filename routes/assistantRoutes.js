@@ -9,13 +9,14 @@ const Student = require('../models/Student');
 const DEFAULT_OWNER = process.env.DEFAULT_GITHUB_OWNER || 'vedikapande44-spec';
 const DEFAULT_REPO = process.env.DEFAULT_GITHUB_REPO || 'CC_Project_1student-backend';
 
-// Ultra-fast model prioritization with automatic fallback
+// Candidate models in order of priority
 const CANDIDATE_MODELS = [
   process.env.GEMINI_MODEL,
+  'gemini-2.5-flash',
+  'gemini-flash-latest',
   'gemini-3-flash-preview',
   'gemini-3.5-flash',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-3.8-flash'
+  'gemini-3.1-flash-lite-preview'
 ].filter(Boolean);
 
 function getGithubHeaders() {
@@ -178,7 +179,7 @@ const TOOL_HANDLERS = {
   }
 };
 
-// Static Tool Definitions for instantaneous 0ms tool loading
+// Static Tool Definitions for Gemini AI Function Calling
 const STATIC_TOOL_DECLARATIONS = [
   {
     name: 'student_get_all_students',
@@ -334,6 +335,189 @@ const STATIC_TOOL_DECLARATIONS = [
   }
 ];
 
+// Robust Autonomous Intent Parser (Fallback Engine)
+function parseAutonomousIntent(text) {
+  const t = text.trim();
+  const idAnywhere = (t.match(/\b(ST\d+)\b/i) || t.match(/\b([0-9a-fA-F]{24})\b/i) || [])[1];
+
+  // 1. Add / Register student
+  if (/\b(?:add|create|insert|register)\b.*\bstudent\b/i.test(t)) {
+    const idMatch = t.match(/\b(?:id|studentid)[:=\s]+([A-Za-z0-9_-]+)/i) || (idAnywhere ? [, idAnywhere] : null);
+    const emailMatch = t.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    const semMatch = t.match(/\b(?:sem|semester)[:=\s]+(\d+)/i) || t.match(/\b(?:in\s+)?semester\s+(\d+)/i);
+    const deptMatch = t.match(/\b(?:department|dept)[:=\s]+([^,\n]+?)(?:,\s*sem|\s+sem|$)/i) ||
+                      t.match(/\b(computer science|information technology|electronics|electrical|mechanical|civil|data science|ai|aiml)\b/i);
+    const nameMatch = t.match(/\bnamed\s+([^,\n]+?)(?:,\s*email|\s+email|\s+dept|\s+sem|$)/i) ||
+                      t.match(/\bname[:=\s]+([^,\n]+?)(?:,\s*email|\s+dept|\s+sem|$)/i);
+
+    if (idMatch || emailMatch) {
+      return {
+        tool: 'student_add_student',
+        args: {
+          studentId: idMatch ? idMatch[1] : ('ST' + Math.floor(100 + Math.random() * 900)),
+          name: nameMatch ? nameMatch[1].trim() : 'New Student',
+          email: emailMatch ? emailMatch[1].trim() : 'student@college.edu',
+          department: deptMatch ? deptMatch[1].trim() : 'Computer Science',
+          semester: semMatch ? Number(semMatch[1]) : 1
+        }
+      };
+    }
+  }
+
+  // 2. Delete / Remove student
+  if (/\b(?:delete|remove|drop)\b/i.test(t) && idAnywhere) {
+    return { tool: 'student_delete_student', args: { id: idAnywhere } };
+  }
+
+  // 3. Update / Modify student
+  if (/\b(?:update|change|modify)\b/i.test(t) && idAnywhere) {
+    const updates = {};
+    const semMatch = t.match(/\b(?:sem|semester)[:=\s]+(\d+)/i) || t.match(/\bto\s+(?:semester\s+)?(\d+)/i);
+    if (semMatch) updates.semester = Number(semMatch[1]);
+    const deptMatch = t.match(/\b(?:dept|department)[:=\s]+([^,\n]+)/i) || t.match(/\bto\s+(computer science|information technology|mechanical|civil)\b/i);
+    if (deptMatch) updates.department = deptMatch[1].trim();
+    const emailMatch = t.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (emailMatch) updates.email = emailMatch[1].trim();
+    const nameMatch = t.match(/\bto\s+name[:=\s]+([^,\n]+)/i);
+    if (nameMatch) updates.name = nameMatch[1].trim();
+    return { tool: 'student_update_student', args: { id: idAnywhere, updates } };
+  }
+
+  // 4. Find / Search specific student
+  if (/\b(?:find|search|lookup|inspect)\b.*\bstudent\b/i.test(t) && idAnywhere) {
+    return { tool: 'student_get_student', args: { id: idAnywhere } };
+  }
+
+  // 5. Database Statistics / Counts
+  if (/\b(?:stats|how many|total students|count students|summary|breakdown)\b/i.test(t)) {
+    return { tool: 'mongodb_get_database_stats', args: {} };
+  }
+
+  // 6. GitHub Create Issue
+  if (/\b(?:create|open)\b.*\bissue\b/i.test(t)) {
+    const titleMatch = t.match(/title(?:d)?\s+['"]([^'"]+)['"]/i) || t.match(/title[:=\s]+([^,\n]+)/i);
+    const bodyMatch = t.match(/(?:description|body)\s+['"]([^'"]+)['"]/i) || t.match(/description[:=\s]+([^,\n]+)/i);
+    return {
+      tool: 'github_create_github_issue',
+      args: {
+        title: titleMatch ? titleMatch[1].trim() : 'Campus Portal Update Request',
+        body: bodyMatch ? bodyMatch[1].trim() : 'Submitted via Gemini MCP Assistant'
+      }
+    };
+  }
+
+  // 7. GitHub repos / status
+  if (/\bgithub\b.*\b(?:repo|repos|repositories)\b/i.test(t)) {
+    return { tool: 'github_list_github_repositories', args: {} };
+  }
+  if (/\bgithub\b.*\b(?:status|connection|check)\b/i.test(t)) {
+    return { tool: 'github_check_github_connection', args: {} };
+  }
+
+  // 8. Application & System Status
+  if (/\b(?:system status|health|status)\b/i.test(t)) {
+    return { tool: 'app_get_system_status', args: {} };
+  }
+
+  // 9. Department Search
+  const deptSearch = t.match(/\b(?:students in|department|search department)\s+(computer science|information technology|electronics|electrical|mechanical|civil|data science|ai|aiml)\b/i);
+  if (deptSearch) {
+    return { tool: 'mongodb_search_students_by_department', args: { department: deptSearch[1] } };
+  }
+
+  // 10. List All Students
+  if (/\b(?:list|show|get|view)\b.*\bstudents\b/i.test(t)) {
+    return { tool: 'student_get_all_students', args: {} };
+  }
+
+  return null;
+}
+
+// Markdown Formatter for Autonomous MCP Tool Responses
+function formatFallbackResponse(toolName, args, result) {
+  if (toolName === 'student_add_student') {
+    let studentData = args;
+    try {
+      const parsed = JSON.parse(result.content[0].text);
+      if (parsed.student) studentData = parsed.student;
+    } catch {}
+    return (
+      `### Student Added Successfully ✅\n\n` +
+      `| Field | Details |\n` +
+      `| :--- | :--- |\n` +
+      `| **Student ID** | \`${studentData.studentId}\` |\n` +
+      `| **Name** | ${studentData.name} |\n` +
+      `| **Email** | ${studentData.email} |\n` +
+      `| **Department** | ${studentData.department} |\n` +
+      `| **Semester** | Semester ${studentData.semester} |\n` +
+      `| **Database ID** | \`${studentData._id || 'Saved in MongoDB'}\` |\n\n` +
+      `*The student record has been added to MongoDB and the directory table has updated automatically.*`
+    );
+  }
+  if (toolName === 'student_delete_student') {
+    return (
+      `### Student Record Removed ✅\n\n` +
+      `${result.content[0].text}\n\n` +
+      `*The student record has been deleted from MongoDB and the live directory has updated.*`
+    );
+  }
+  if (toolName === 'student_update_student') {
+    return (
+      `### Student Record Updated ✅\n\n` +
+      `${result.content[0].text}\n\n` +
+      `*The student record was updated in MongoDB and synchronized with the frontend.*`
+    );
+  }
+  if (toolName === 'mongodb_get_database_stats') {
+    try {
+      const s = JSON.parse(result.content[0].text);
+      return (
+        `### 📊 MongoDB Campus Analytics\n\n` +
+        `- **Total Students:** ${s.totalStudents}\n` +
+        `- **Distinct Departments:** ${s.departmentsCount}\n\n` +
+        `#### Department Breakdown\n` +
+        (s.departmentBreakdown || []).map(d => `- **${d._id}:** ${d.count} students`).join('\n') +
+        `\n\n#### Semester Distribution\n` +
+        (s.semesterBreakdown || []).map(sem => `- **Semester ${sem._id}:** ${sem.count} students`).join('\n')
+      );
+    } catch {
+      return result.content[0].text;
+    }
+  }
+  if (toolName === 'github_create_github_issue') {
+    return (
+      `### 🐙 GitHub Issue Synchronized ✅\n\n` +
+      `${result.content[0].text}\n\n` +
+      `*Tracked in repository \`${DEFAULT_OWNER}/${DEFAULT_REPO}\`.*`
+    );
+  }
+  if (toolName === 'github_list_github_repositories') {
+    try {
+      const repos = JSON.parse(result.content[0].text);
+      return (
+        `### 🐙 Recent GitHub Repositories\n\n` +
+        repos.map(r => `- **[${r.name}](${r.url})** (\`${r.full_name}\`)`).join('\n')
+      );
+    } catch {
+      return result.content[0].text;
+    }
+  }
+  if (toolName === 'student_get_all_students') {
+    try {
+      const list = JSON.parse(result.content[0].text);
+      return (
+        `### 📋 Student Directory (${list.length} Students)\n\n` +
+        `| ID | Name | Department | Semester | Email |\n` +
+        `| :--- | :--- | :--- | :--- | :--- |\n` +
+        list.slice(0, 15).map(s => `| **${s.studentId}** | ${s.name} | ${s.department} | Sem ${s.semester} | ${s.email} |`).join('\n')
+      );
+    } catch {
+      return result.content[0].text;
+    }
+  }
+  return result.content?.[0]?.text || 'Operation executed successfully.';
+}
+
 // Resilient content generator across candidate models
 async function generateWithFallback(ai, contents, tools) {
   let lastError = null;
@@ -370,146 +554,203 @@ async function generateWithFallback(ai, contents, tools) {
   throw lastError || new Error('All candidate Gemini models failed to respond');
 }
 
-// POST /api/assistant: Fast AI Assistant endpoint
+// POST /api/assistant: Dual-Engine AI + Autonomous MCP Assistant endpoint
 router.post('/', async (req, res) => {
-  try {
-    const { message, history } = req.body;
+  const { message, history } = req.body;
 
-    if (!message || typeof message !== 'string') {
-      return res.status(400).json({ error: 'Please provide a valid message string' });
-    }
+  if (!message || typeof message !== 'string') {
+    return res.status(400).json({ error: 'Please provide a valid message string' });
+  }
 
-    if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({ error: 'GEMINI_API_KEY environment variable is not set' });
-    }
+  const rawKey = process.env.GEMINI_API_KEY || '';
+  const apiKey = rawKey.trim().replace(/^['"]|['"]$/g, '');
 
-    const ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY
-    });
+  // Attempt 1: Try Gemini AI with MCP Function Calling
+  if (apiKey) {
+    try {
+      const ai = new GoogleGenAI({ apiKey });
 
-    const systemPrompt =
-      'You are the intelligent Assistant for the Student Management System. ' +
-      'You have direct MCP tools for the Database (MongoDB), Application, and GitHub.\n' +
-      '- Database: view, search, add, update, batch add, and delete students.\n' +
-      '- GitHub: list repos, check connection, create issues in ' +
-      `${DEFAULT_OWNER}/${DEFAULT_REPO}.\n` +
-      '- When a user asks to view, create, update, delete, or check anything, ALWAYS execute the appropriate tool.\n' +
-      '- Be concise, clear, and return clean markdown formatting.';
+      const systemPrompt =
+        'You are the intelligent Assistant for the Student Management System. ' +
+        'You have direct MCP tools for the Database (MongoDB), Application, and GitHub.\n' +
+        '- Database: view, search, add, update, batch add, and delete students.\n' +
+        '- GitHub: list repos, check connection, create issues in ' +
+        `${DEFAULT_OWNER}/${DEFAULT_REPO}.\n` +
+        '- When a user asks to view, create, update, delete, or check anything, ALWAYS execute the appropriate tool.\n' +
+        '- Be concise, clear, and return clean markdown formatting.';
 
-    const contents = [];
+      const contents = [];
 
-    // Optional past turns (last 4 for fast token processing)
-    if (Array.isArray(history) && history.length > 0) {
-      for (const turn of history.slice(-4)) {
-        if (turn.role === 'user' && turn.text) {
-          contents.push({ role: 'user', parts: [{ text: turn.text }] });
-        } else if (turn.role === 'assistant' && turn.text) {
-          contents.push({ role: 'model', parts: [{ text: turn.text }] });
-        }
-      }
-    }
-
-    contents.push({
-      role: 'user',
-      parts: [{
-        text: `[System Context: ${systemPrompt}]\n\nUser request: ${message}`
-      }]
-    });
-
-    const toolsExecuted = [];
-    let dataModified = false;
-    let finalReply = '';
-    const maxRounds = 5;
-
-    for (let round = 0; round < maxRounds; round++) {
-      const { response } = await generateWithFallback(ai, contents, STATIC_TOOL_DECLARATIONS);
-      const modelContent = response.candidates?.[0]?.content;
-
-      if (!modelContent) {
-        finalReply = response.text || 'Done.';
-        break;
-      }
-
-      contents.push(modelContent);
-      const functionCalls = response.functionCalls || [];
-
-      if (functionCalls.length === 0) {
-        finalReply = response.text || 'Request completed.';
-        break;
-      }
-
-      const functionResponses = [];
-
-      for (const call of functionCalls) {
-        let toolResultText = '';
-        let executionStatus = 'success';
-
-        if (
-          call.name.includes('add_student') ||
-          call.name.includes('update_student') ||
-          call.name.includes('delete_student')
-        ) {
-          dataModified = true;
-        }
-
-        try {
-          if (TOOL_HANDLERS[call.name]) {
-            toolResultText = await TOOL_HANDLERS[call.name](call.args || {});
-          } else {
-            throw new Error(`Tool ${call.name} not available`);
+      if (Array.isArray(history) && history.length > 0) {
+        for (const turn of history.slice(-4)) {
+          if (turn.role === 'user' && turn.text) {
+            contents.push({ role: 'user', parts: [{ text: turn.text }] });
+          } else if (turn.role === 'assistant' && turn.text) {
+            contents.push({ role: 'model', parts: [{ text: turn.text }] });
           }
-        } catch (toolError) {
-          executionStatus = 'error';
-          toolResultText = { error: toolError.message };
         }
-
-        toolsExecuted.push({
-          tool: call.name,
-          args: call.args || {},
-          status: executionStatus,
-          output: toolResultText
-        });
-
-        functionResponses.push({
-          functionResponse: {
-            name: call.name,
-            response: { result: toolResultText },
-            ...(call.id ? { id: call.id } : {})
-          }
-        });
       }
 
       contents.push({
         role: 'user',
-        parts: functionResponses
+        parts: [{
+          text: `[System Context: ${systemPrompt}]\n\nUser request: ${message}`
+        }]
+      });
+
+      const toolsExecuted = [];
+      let dataModified = false;
+      let finalReply = '';
+      const maxRounds = 5;
+
+      for (let round = 0; round < maxRounds; round++) {
+        const { response } = await generateWithFallback(ai, contents, STATIC_TOOL_DECLARATIONS);
+        const modelContent = response.candidates?.[0]?.content;
+
+        if (!modelContent) {
+          finalReply = response.text || 'Done.';
+          break;
+        }
+
+        contents.push(modelContent);
+        const functionCalls = response.functionCalls || [];
+
+        if (functionCalls.length === 0) {
+          finalReply = response.text || 'Request completed.';
+          break;
+        }
+
+        const functionResponses = [];
+
+        for (const call of functionCalls) {
+          let toolResultText = '';
+          let executionStatus = 'success';
+
+          if (
+            call.name.includes('add_student') ||
+            call.name.includes('update_student') ||
+            call.name.includes('delete_student')
+          ) {
+            dataModified = true;
+          }
+
+          try {
+            if (TOOL_HANDLERS[call.name]) {
+              toolResultText = await TOOL_HANDLERS[call.name](call.args || {});
+            } else {
+              throw new Error(`Tool ${call.name} not available`);
+            }
+          } catch (toolError) {
+            executionStatus = 'error';
+            toolResultText = { error: toolError.message };
+          }
+
+          toolsExecuted.push({
+            tool: call.name,
+            args: call.args || {},
+            status: executionStatus,
+            output: toolResultText
+          });
+
+          functionResponses.push({
+            functionResponse: {
+              name: call.name,
+              response: { result: toolResultText },
+              ...(call.id ? { id: call.id } : {})
+            }
+          });
+        }
+
+        contents.push({
+          role: 'user',
+          parts: functionResponses
+        });
+      }
+
+      return res.json({
+        reply: finalReply || 'Operation completed successfully.',
+        toolsExecuted,
+        dataModified,
+        engine: 'gemini_mcp',
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (geminiError) {
+      console.warn('Gemini AI engine encountered an issue, transitioning seamlessly to Autonomous MCP Engine:', geminiError.message);
+    }
+  }
+
+  // Attempt 2: Autonomous MCP Direct Intent Execution (Zero-downtime Guarantee)
+  try {
+    const intent = parseAutonomousIntent(message);
+
+    if (intent && TOOL_HANDLERS[intent.tool]) {
+      const toolOutput = await TOOL_HANDLERS[intent.tool](intent.args);
+      const isMutation =
+        intent.tool.includes('add_student') ||
+        intent.tool.includes('update_student') ||
+        intent.tool.includes('delete_student');
+
+      const reply = formatFallbackResponse(intent.tool, intent.args, toolOutput);
+
+      return res.json({
+        reply,
+        toolsExecuted: [{
+          tool: intent.tool,
+          args: intent.args,
+          status: 'success',
+          output: toolOutput
+        }],
+        dataModified: isMutation,
+        engine: 'mcp_autonomous',
+        timestamp: new Date().toISOString()
       });
     }
 
-    res.json({
-      reply: finalReply || 'Operation completed successfully.',
-      toolsExecuted,
-      dataModified,
+    // Default friendly assistant guidance
+    return res.json({
+      reply:
+        '👋 **Hello! I am your Campus AI Copilot** with real-time MCP integration for MongoDB, GitHub, and the Student Directory.\n\n' +
+        'You can perform actions like:\n' +
+        '- **Add student:** `Add a new student ST103 named Riya Sen, email riya@college.edu, department Computer Science, semester 2`\n' +
+        '- **Update student:** `Find student ST103 and update their semester to 3`\n' +
+        '- **Delete student:** `Delete student ST103`\n' +
+        '- **View statistics:** `Show total students and database stats`\n' +
+        '- **GitHub Issue:** `Create a GitHub issue titled "Export feature" with description "Add export to CSV"`\n\n' +
+        'How can I assist you with the campus system right now?',
+      toolsExecuted: [],
+      dataModified: false,
+      engine: 'mcp_autonomous',
       timestamp: new Date().toISOString()
     });
 
-  } catch (error) {
-    console.error('Fast Assistant Error:', error);
-    res.status(500).json({
-      error: 'AI assistant request failed',
-      details: error.message
+  } catch (mcpError) {
+    console.error('Autonomous MCP Error:', mcpError);
+    return res.status(500).json({
+      error: 'MCP operation failed',
+      details: mcpError.message
     });
   }
 });
 
 // GET /api/assistant/status: Health & Tools Inspection
 router.get('/status', async (req, res) => {
+  const rawKey = process.env.GEMINI_API_KEY || '';
+  const sanitizedKey = rawKey.trim().replace(/^['"]|['"]$/g, '');
+
   res.json({
     status: 'active',
     fastEngine: true,
     models: CANDIDATE_MODELS,
     activeToolsCount: STATIC_TOOL_DECLARATIONS.length,
     tools: STATIC_TOOL_DECLARATIONS.map(t => ({ name: t.name, description: t.description })),
-    databaseState: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    databaseState: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    apiKeyStatus: {
+      configured: Boolean(sanitizedKey),
+      length: sanitizedKey.length,
+      prefix: sanitizedKey ? sanitizedKey.substring(0, 6) + '...' : 'none',
+      suffix: sanitizedKey ? '...' + sanitizedKey.slice(-4) : 'none'
+    }
   });
 });
 
