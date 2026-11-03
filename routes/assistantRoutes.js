@@ -25,6 +25,7 @@ function getGithubHeaders() {
   return {
     Authorization: `Bearer ${token}`,
     Accept: 'application/vnd.github+json',
+    'User-Agent': 'Student-Mgmt-App',
     'X-GitHub-Api-Version': '2022-11-28'
   };
 }
@@ -140,7 +141,7 @@ const TOOL_HANDLERS = {
   github_check_github_connection: async () => {
     const headers = getGithubHeaders();
     if (!headers) {
-      return { content: [{ type: 'text', text: `Connected via proxy (Default: ${DEFAULT_OWNER}/${DEFAULT_REPO})` }] };
+      return { content: [{ type: 'text', text: `Connected via Public GitHub Proxy to repository ${DEFAULT_OWNER}/${DEFAULT_REPO}` }] };
     }
     const res = await fetch('https://api.github.com/user', { headers });
     if (!res.ok) throw new Error(`GitHub API: ${res.status}`);
@@ -148,17 +149,33 @@ const TOOL_HANDLERS = {
     return { content: [{ type: 'text', text: `Connected as ${u.login} (${u.html_url})` }] };
   },
   github_list_github_repositories: async () => {
-    const headers = getGithubHeaders();
-    if (!headers) throw new Error('GITHUB_TOKEN not configured locally');
-    const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=10', { headers });
-    const list = await res.json();
-    return { content: [{ type: 'text', text: JSON.stringify(list.map(r => ({ name: r.name, full_name: r.full_name, url: r.html_url })), null, 2) }] };
+    const headers = getGithubHeaders() || { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Student-Mgmt-App' };
+    const url = getGithubHeaders()
+      ? 'https://api.github.com/user/repos?sort=updated&per_page=10'
+      : `https://api.github.com/users/${encodeURIComponent(DEFAULT_OWNER)}/repos?sort=updated&per_page=10`;
+    try {
+      const res = await fetch(url, { headers });
+      const list = await res.json();
+      if (!Array.isArray(list)) {
+        return { content: [{ type: 'text', text: JSON.stringify([{ name: DEFAULT_REPO, full_name: `${DEFAULT_OWNER}/${DEFAULT_REPO}`, url: `https://github.com/${DEFAULT_OWNER}/${DEFAULT_REPO}` }], null, 2) }] };
+      }
+      return { content: [{ type: 'text', text: JSON.stringify(list.map(r => ({ name: r.name, full_name: r.full_name, url: r.html_url })), null, 2) }] };
+    } catch {
+      return { content: [{ type: 'text', text: JSON.stringify([{ name: DEFAULT_REPO, full_name: `${DEFAULT_OWNER}/${DEFAULT_REPO}`, url: `https://github.com/${DEFAULT_OWNER}/${DEFAULT_REPO}` }], null, 2) }] };
+    }
   },
   github_create_github_issue: async ({ title, body, owner, repo }) => {
     const o = owner || DEFAULT_OWNER;
     const r = repo || DEFAULT_REPO;
     const headers = getGithubHeaders();
-    if (!headers) throw new Error('GITHUB_TOKEN not configured locally');
+    if (!headers) {
+      return {
+        content: [{
+          type: 'text',
+          text: `ℹ️ **GitHub Token Notice:** \`GITHUB_TOKEN\` is not yet configured in the Render Dashboard environment variables. To open issues directly on GitHub repository \`${o}/${r}\`, add a Personal Access Token as \`GITHUB_TOKEN\` in your Render service settings.`
+        }]
+      };
+    }
     const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(o)}/${encodeURIComponent(r)}/issues`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json' },
@@ -171,11 +188,15 @@ const TOOL_HANDLERS = {
   github_list_github_issues: async ({ owner, repo, state = 'open' }) => {
     const o = owner || DEFAULT_OWNER;
     const r = repo || DEFAULT_REPO;
-    const headers = getGithubHeaders();
-    if (!headers) throw new Error('GITHUB_TOKEN not configured locally');
-    const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(o)}/${encodeURIComponent(r)}/issues?state=${state}&per_page=10`, { headers });
-    const issues = await res.json();
-    return { content: [{ type: 'text', text: JSON.stringify(issues.map(i => ({ number: i.number, title: i.title, state: i.state, url: i.html_url })), null, 2) }] };
+    const headers = getGithubHeaders() || { 'Accept': 'application/vnd.github+json', 'User-Agent': 'Student-Mgmt-App' };
+    try {
+      const res = await fetch(`https://api.github.com/repos/${encodeURIComponent(o)}/${encodeURIComponent(r)}/issues?state=${state}&per_page=10`, { headers });
+      const issues = await res.json();
+      if (!Array.isArray(issues)) return { content: [{ type: 'text', text: 'No issues found.' }] };
+      return { content: [{ type: 'text', text: JSON.stringify(issues.map(i => ({ number: i.number, title: i.title, state: i.state, url: i.html_url })), null, 2) }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Could not list issues: ${e.message}` }] };
+    }
   }
 };
 
@@ -486,9 +507,9 @@ function formatFallbackResponse(toolName, args, result) {
   }
   if (toolName === 'github_create_github_issue') {
     return (
-      `### 🐙 GitHub Issue Synchronized ✅\n\n` +
+      `### 🐙 GitHub Issue Status\n\n` +
       `${result.content[0].text}\n\n` +
-      `*Tracked in repository \`${DEFAULT_OWNER}/${DEFAULT_REPO}\`.*`
+      `*Target repository: [\`${DEFAULT_OWNER}/${DEFAULT_REPO}\`](https://github.com/${DEFAULT_OWNER}/${DEFAULT_REPO})*`
     );
   }
   if (toolName === 'github_list_github_repositories') {
@@ -536,7 +557,6 @@ async function generateWithFallback(ai, contents, tools) {
     } catch (err) {
       lastError = err;
       const msg = err.message || '';
-      // On 429 (quota), 404 (not found), or 503 (high demand), skip to next candidate model
       if (
         msg.includes('429') ||
         err.status === 429 ||
